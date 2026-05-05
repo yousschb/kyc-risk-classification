@@ -39,15 +39,17 @@ print("="*60)
 explainer_rf = shap.TreeExplainer(rf)
 shap_values_rf = explainer_rf.shap_values(X)
 
-# Global summary plot — RF
+# Normalize RF shap values
+shap_rf_high = shap_values_rf[2] if isinstance(shap_values_rf, list) else shap_values_rf[:, :, 2]
+
+# Global beeswarm summary plot — RF (High Risk class)
 plt.figure()
 shap.summary_plot(
-    shap_values_rf,
+    shap_rf_high,
     X,
-    class_names=['Low Risk', 'Medium Risk', 'High Risk'],
     show=False
 )
-plt.title('Random Forest — SHAP Summary Plot (Global)', fontsize=13, fontweight='bold')
+plt.title('Random Forest — SHAP Summary Plot: High Risk class', fontsize=13, fontweight='bold')
 plt.tight_layout()
 plt.savefig('data/figures/shap_rf_summary.png', dpi=150, bbox_inches='tight')
 plt.close()
