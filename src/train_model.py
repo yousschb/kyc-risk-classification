@@ -130,6 +130,57 @@ print(f"  CV F1 (5-fold):        {cv_scores_xgb.mean():.4f} ± {cv_scores_xgb.st
 print(f"\nClassification Report:\n{classification_report(y_test, y_pred_xgb, target_names=['Low','Medium','High'])}")
 
 # =============================================
+# 4b. XGBOOST — COST-SENSITIVE (asymmetric)
+# =============================================
+print("="*60)
+print("STEP 4b — XGBoost Cost-Sensitive (Asymmetric Misclassification)")
+print("="*60)
+print("Rationale: Misclassifying a High Risk client as Low Risk carries")
+print("far greater regulatory consequences than the reverse (FINMA/AMLA).")
+print("We apply a sample weight matrix penalizing High->Low errors 5x more.")
+
+# Build sample weights — penalize High Risk misclassification
+sample_weights = np.ones(len(y_train))
+# Clients qui sont High Risk (label=2) reçoivent un poids 3x plus élevé
+sample_weights[y_train == 2] = 3.0
+# Clients Medium Risk reçoivent un poids 1.5x
+sample_weights[y_train == 1] = 1.5
+
+xgb_cs = XGBClassifier(
+    n_estimators=200,
+    max_depth=6,
+    learning_rate=0.1,
+    subsample=0.8,
+    colsample_bytree=0.8,
+    eval_metric='mlogloss',
+    random_state=42,
+    n_jobs=-1
+)
+
+xgb_cs.fit(X_train, y_train, sample_weight=sample_weights)
+y_pred_cs = xgb_cs.predict(X_test)
+y_proba_cs = xgb_cs.predict_proba(X_test)
+
+cv_scores_cs = cross_val_score(xgb_cs, X, y, cv=cv, scoring='f1_weighted')
+
+print(f"\nXGBoost Cost-Sensitive Results:")
+print(f"  Accuracy:              {accuracy_score(y_test, y_pred_cs):.4f}")
+print(f"  F1-Score (weighted):   {f1_score(y_test, y_pred_cs, average='weighted'):.4f}")
+print(f"  AUC-ROC (OvR):         {roc_auc_score(y_test, y_proba_cs, multi_class='ovr'):.4f}")
+print(f"  CV F1 (5-fold):        {cv_scores_cs.mean():.4f} ± {cv_scores_cs.std():.4f}")
+print(f"\nClassification Report (Cost-Sensitive):\n{classification_report(y_test, y_pred_cs, target_names=['Low','Medium','High'])}")
+
+# Analyse spécifique High Risk recall
+cm_cs = confusion_matrix(y_test, y_pred_cs)
+cm_std = confusion_matrix(y_test, y_pred_xgb)
+print(f"\nHigh Risk Recall comparison:")
+print(f"  Standard XGBoost:      {cm_std[2,2]/cm_std[2].sum():.4f}")
+print(f"  Cost-Sensitive XGBoost:{cm_cs[2,2]/cm_cs[2].sum():.4f}")
+
+# Save cost-sensitive model
+joblib.dump(xgb_cs, 'models/xgboost_cost_sensitive.pkl')
+
+# =============================================
 # 5. COMPARISON TABLE
 # =============================================
 print("="*60)
