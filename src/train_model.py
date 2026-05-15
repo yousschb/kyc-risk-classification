@@ -5,7 +5,7 @@ import seaborn as sns
 import joblib
 import os
 
-from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
+from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score, RandomizedSearchCV
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (
@@ -265,3 +265,54 @@ print("  models/le_sector.pkl")
 print("  models/feature_names.pkl")
 print("="*60)
 print("\nDone. Ready for SHAP analysis.")
+
+# =============================================
+# STEP 6 — HYPERPARAMETER TUNING (RandomizedSearchCV)
+# =============================================
+print("\n" + "="*60)
+print("STEP 6 — Hyperparameter Tuning (RandomizedSearchCV)")
+print("="*60)
+print("Searching best parameters for XGBoost...")
+
+param_dist = {
+    'n_estimators': [100, 200, 300, 500],
+    'max_depth': [3, 4, 5, 6, 8],
+    'learning_rate': [0.01, 0.05, 0.1, 0.2],
+    'subsample': [0.6, 0.7, 0.8, 0.9],
+    'colsample_bytree': [0.6, 0.7, 0.8, 0.9],
+    'min_child_weight': [1, 3, 5],
+    'gamma': [0, 0.1, 0.2, 0.5]
+}
+
+xgb_tuning = XGBClassifier(eval_metric='mlogloss', random_state=42, n_jobs=-1)
+
+random_search = RandomizedSearchCV(
+    xgb_tuning,
+    param_distributions=param_dist,
+    n_iter=30,
+    scoring='f1_weighted',
+    cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
+    random_state=42,
+    n_jobs=-1,
+    verbose=1
+)
+
+random_search.fit(X_train, y_train)
+
+print(f"\nBest parameters found:")
+for k, v in random_search.best_params_.items():
+    print(f"  {k}: {v}")
+print(f"Best CV F1: {random_search.best_score_:.4f}")
+
+xgb_best = random_search.best_estimator_
+y_pred_best = xgb_best.predict(X_test)
+y_proba_best = xgb_best.predict_proba(X_test)
+
+print(f"\nTuned XGBoost Results:")
+print(f"  Accuracy:              {accuracy_score(y_test, y_pred_best):.4f}")
+print(f"  F1-Score (weighted):   {f1_score(y_test, y_pred_best, average='weighted'):.4f}")
+print(f"  AUC-ROC (OvR):         {roc_auc_score(y_test, y_proba_best, multi_class='ovr'):.4f}")
+print(f"\nClassification Report (Tuned):\n{classification_report(y_test, y_pred_best, target_names=['Low','Medium','High'])}")
+
+joblib.dump(xgb_best, 'models/xgboost_tuned.pkl')
+print("Tuned model saved → models/xgboost_tuned.pkl")
