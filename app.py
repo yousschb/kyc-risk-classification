@@ -321,6 +321,36 @@ if mode == "Individual Analysis":
         label = model.predict(X_input)[0]
         proba = model.predict_proba(X_input)[0]
 
+        explanation = explainer(X_input)
+        if len(explanation.values.shape) == 3:
+            shap_vals = explanation.values[0, :, label]
+        else:
+            shap_vals = explanation.values[0]
+
+        reg_text = get_regulatory_explanation(label, shap_vals, feature_names, X_input)
+
+        # Store in session state
+        st.session_state['results'] = {
+            'label': label, 'proba': proba, 'X_input': X_input,
+            'reg_text': reg_text, 'shap_vals': shap_vals,
+            'country': country, 'sector': sector, 'is_pep': is_pep,
+            'transaction_volume': transaction_volume, 'account_age_years': account_age_years,
+            'nb_transactions_30d': nb_transactions_30d, 'nb_countries_involved': nb_countries_involved,
+            'cash_ratio': cash_ratio, 'adverse_media_score': adverse_media_score,
+            'beneficial_owner_complexity': beneficial_owner_complexity,
+            'source_of_wealth_verified': source_of_wealth_verified,
+            'model_choice': model_choice, 'explainer': explainer
+        }
+
+    # Show results from session state
+    if 'results' in st.session_state:
+        r = st.session_state['results']
+        label = r['label']
+        proba = r['proba']
+        X_input = r['X_input']
+        reg_text = r['reg_text']
+        explainer = r['explainer']
+
         st.markdown("---")
         st.markdown('<p class="section-title">Risk Classification Result</p>', unsafe_allow_html=True)
 
@@ -330,7 +360,7 @@ if mode == "Individual Analysis":
             st.markdown(f'<div class="{COLOR_MAP[label]}">{LABEL_MAP[label]}</div>', unsafe_allow_html=True)
             st.markdown(f"""
             <div style='margin-top:12px; font-size:0.8rem; color:#6b7a99;'>
-            Model: {model_choice}<br>
+            Model: {r['model_choice']}<br>
             Confidence: {proba[label]*100:.1f}%
             </div>
             """, unsafe_allow_html=True)
@@ -339,8 +369,8 @@ if mode == "Individual Analysis":
             fig_proba, ax = plt.subplots(figsize=(6, 2))
             fig_proba.patch.set_facecolor('#1a1d27')
             ax.set_facecolor('#1a1d27')
-            colors = ['#27ae60', '#e67e22', '#e74c3c']
-            bars = ax.barh(['Low', 'Medium', 'High'], proba, color=colors, height=0.5)
+            colors_list = ['#27ae60', '#e67e22', '#e74c3c']
+            bars = ax.barh(['Low', 'Medium', 'High'], proba, color=colors_list, height=0.5)
             for bar, p in zip(bars, proba):
                 ax.text(bar.get_width() + 0.01, bar.get_y() + bar.get_height()/2,
                        f'{p*100:.1f}%', va='center', color='white', fontsize=10)
@@ -357,15 +387,161 @@ if mode == "Individual Analysis":
         st.pyplot(fig_waterfall)
         plt.close()
 
-        # Regulatory box
-        explanation = explainer(X_input)
-        if len(explanation.values.shape) == 3:
-            shap_vals = explanation.values[0, :, label]
-        else:
-            shap_vals = explanation.values[0]
-
-        reg_text = get_regulatory_explanation(label, shap_vals, feature_names, X_input)
         st.markdown(f'<div class="reg-box">{reg_text}</div>', unsafe_allow_html=True)
+
+        # PDF EXPORT
+        st.markdown('<p class="section-title">Export Report</p>', unsafe_allow_html=True)
+
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.units import cm, mm
+        from reportlab.lib import colors as rl_colors
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, KeepTogether
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT
+        import io, datetime
+
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4,
+                                topMargin=1.8*cm, bottomMargin=1.8*cm,
+                                leftMargin=2*cm, rightMargin=2*cm)
+
+        story = []
+        blue      = rl_colors.HexColor('#2980b9')
+        lightgrey = rl_colors.HexColor('#f5f7fa')
+        midgrey   = rl_colors.HexColor('#dee2e6')
+        darktext  = rl_colors.HexColor('#2c3e50')
+        reg_bg    = rl_colors.HexColor('#eef2f7')
+        risk_col  = {0: rl_colors.HexColor('#27ae60'),
+                     1: rl_colors.HexColor('#e67e22'),
+                     2: rl_colors.HexColor('#e74c3c')}
+
+        # ── Styles ──────────────────────────────────────────────
+        title_s = ParagraphStyle('title_s', fontName='Helvetica-Bold', fontSize=15,
+                                  textColor=blue, alignment=TA_CENTER,
+                                  spaceAfter=2*mm)
+        meta_s  = ParagraphStyle('meta_s',  fontName='Helvetica', fontSize=8,
+                                  textColor=rl_colors.grey, alignment=TA_CENTER,
+                                  spaceAfter=3*mm)
+        badge_s = ParagraphStyle('badge_s', fontName='Helvetica-Bold', fontSize=17,
+                                  textColor=rl_colors.white, alignment=TA_CENTER,
+                                  backColor=risk_col[label],
+                                  borderPadding=(4*mm, 0, 4*mm, 0),
+                                  spaceAfter=1*mm)
+        conf_s  = ParagraphStyle('conf_s',  fontName='Helvetica', fontSize=8,
+                                  textColor=rl_colors.grey, alignment=TA_CENTER,
+                                  spaceAfter=4*mm)
+        sec_s   = ParagraphStyle('sec_s',   fontName='Helvetica-Bold', fontSize=9,
+                                  textColor=blue, alignment=TA_LEFT,
+                                  spaceBefore=4*mm, spaceAfter=2*mm)
+        cell_s  = ParagraphStyle('cell_s',  fontName='Helvetica', fontSize=8,
+                                  textColor=darktext, leading=11)
+        reg_line_s = ParagraphStyle('reg_line_s', fontName='Courier', fontSize=8,
+                                     textColor=darktext, leading=13,
+                                     spaceAfter=1.5*mm)
+        foot_s  = ParagraphStyle('foot_s',  fontName='Helvetica', fontSize=7,
+                                  textColor=rl_colors.grey, alignment=TA_CENTER,
+                                  spaceBefore=2*mm)
+
+        # ── Header ──────────────────────────────────────────────
+        story.append(Paragraph("KYC Risk Classification Report", title_s))
+        story.append(Paragraph(
+            f"Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}  ·  Model: {r['model_choice']}",
+            meta_s))
+        story.append(HRFlowable(width="100%", thickness=1.2, color=blue, spaceAfter=5*mm))
+
+        # ── Risk Badge ──────────────────────────────────────────
+        story.append(Paragraph(LABEL_MAP[label], badge_s))
+        story.append(Spacer(1, 2*mm))
+        conf_s2 = ParagraphStyle('conf_s2', fontName='Helvetica-Oblique', fontSize=9,
+                                  textColor=darktext, alignment=TA_CENTER, spaceAfter=0)
+        story.append(Paragraph(f"Confidence: {proba[label]*100:.1f}%", conf_s2))
+        story.append(Spacer(1, 5*mm))
+
+        # ── Tables side by side ─────────────────────────────────
+        ts = TableStyle([
+            ('BACKGROUND',    (0, 0), (-1, 0), blue),
+            ('TEXTCOLOR',     (0, 0), (-1, 0), rl_colors.white),
+            ('FONTNAME',      (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE',      (0, 0), (-1,-1), 8),
+            ('ROWBACKGROUNDS',(0, 1), (-1,-1), [lightgrey, rl_colors.white]),
+            ('GRID',          (0, 0), (-1,-1), 0.4, midgrey),
+            ('LEFTPADDING',   (0, 0), (-1,-1), 5),
+            ('RIGHTPADDING',  (0, 0), (-1,-1), 5),
+            ('TOPPADDING',    (0, 0), (-1,-1), 3),
+            ('BOTTOMPADDING', (0, 0), (-1,-1), 3),
+            ('VALIGN',        (0, 0), (-1,-1), 'MIDDLE'),
+        ])
+
+        profile_rows = [
+            ['Parameter', 'Value'],
+            ['Country',        r['country']],
+            ['Sector',         r['sector']],
+            ['PEP Status',     'Yes' if r['is_pep']==1 else 'No'],
+            ['Volume (CHF)',    f"{r['transaction_volume']:,.0f}"],
+            ['Account Age',    f"{r['account_age_years']} years"],
+            ['Countries',      str(r['nb_countries_involved'])],
+            ['Cash Ratio',     f"{r['cash_ratio']:.2f}"],
+            ['Adverse Media',  f"{r['adverse_media_score']} / 3"],
+            ['BO Complexity',  ['Simple','Holding','Offshore'][r['beneficial_owner_complexity']]],
+            ['SoW Verified',   'Yes' if r['source_of_wealth_verified']==1 else 'No'],
+        ]
+        proba_rows = [
+            ['Risk Class',   'Probability'],
+            ['Low Risk',     f'{proba[0]*100:.1f}%'],
+            ['Medium Risk',  f'{proba[1]*100:.1f}%'],
+            ['High Risk',    f'{proba[2]*100:.1f}%'],
+        ]
+
+        t_profile = Table(profile_rows, colWidths=[4.8*cm, 3.8*cm])
+        t_profile.setStyle(ts)
+        t_proba   = Table(proba_rows,   colWidths=[4.2*cm, 3.2*cm])
+        t_proba.setStyle(ts)
+
+        story.append(Paragraph("CLIENT PROFILE", sec_s))
+        side = Table(
+            [[t_profile, '', t_proba]],
+            colWidths=[8.6*cm, 0.7*cm, 7.4*cm]
+        )
+        side.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP')]))
+        story.append(side)
+        story.append(Spacer(1, 5*mm))
+
+        # ── Regulatory Box ──────────────────────────────────────
+        story.append(Paragraph("REGULATORY EXPLANATION (FINMA)", sec_s))
+
+        reg_lines = [l.strip() for l in reg_text.split('\n') if l.strip()]
+        reg_table_data = [[Paragraph(line, reg_line_s)] for line in reg_lines]
+        reg_table = Table(reg_table_data, colWidths=[16.5*cm])
+        reg_table.setStyle(TableStyle([
+            ('BACKGROUND',   (0,0), (-1,-1), reg_bg),
+            ('LEFTPADDING',  (0,0), (-1,-1), 8),
+            ('RIGHTPADDING', (0,0), (-1,-1), 8),
+            ('TOPPADDING',   (0,0), (-1,-1), 4),
+            ('BOTTOMPADDING',(0,0), (-1,-1), 4),
+            ('LINEABOVE',    (0,0), (-1, 0), 1, blue),
+            ('LINEBELOW',    (0,-1),(-1,-1), 0.5, midgrey),
+        ]))
+        story.append(reg_table)
+
+        # ── Footer ──────────────────────────────────────────────
+        story.append(Spacer(1, 4*mm))
+        story.append(HRFlowable(width="100%", thickness=0.4, color=midgrey))
+        story.append(Paragraph(
+            "KYC Risk Classification System  ·  HEC Lausanne MScIS Thesis 2026  ·  "
+            "Youssouf Chaib  ·  FINMA Circular 2016/7 & AMLA  ·  DSR Peffers et al. (2007)",
+            foot_s))
+
+        doc.build(story)
+        buffer.seek(0)
+
+        st.download_button(
+            label="DOWNLOAD PDF",
+            data=buffer,
+            file_name=f"KYC_Report_{r['country']}_{LABEL_MAP[label].replace(' ', '_')}.pdf",
+            mime="application/pdf",
+            key="pdf_download_btn"
+        )
+
 
 # =============================================
 # INTERFACE 2 — PORTFOLIO ANALYSIS
