@@ -189,21 +189,21 @@ with st.sidebar:
     model_choice = st.selectbox(
         "Model",
         ["XGBoost", "Random Forest"],
-        help="XGBoost performs better (AUC 0.87 vs 0.82)"
+        help="XGBoost performs better (AUC-ROC 0.916 vs 0.808 on the test set, thesis Table 4.2)"
     )
 
     st.markdown("---")
     st.markdown("""
     <div style='font-size:0.75rem; color:#6b7a99; line-height:1.6;'>
-    <b>Model Performance</b><br>
-    XGBoost — Acc: 71% | AUC: 0.87<br>
-    Random Forest — Acc: 61% | AUC: 0.82<br><br>
+    <b>Model Performance</b> (test set, Table 4.2)<br>
+    XGBoost (tuned) — Acc: 77.7% | AUC-ROC: 0.916<br>
+    Random Forest — Acc: 62.9% | AUC-ROC: 0.808<br><br>
     <b>Methodology</b><br>
     Design Science Research<br>
     Peffers et al. (2007)<br><br>
     <b>Regulatory Framework</b><br>
-    FINMA Circular 2016/7<br>
-    AMLA (LBA) Art. 3–6
+    AMLA (LBA) Art. 3–7<br>
+    AMLO-FINMA Art. 13, 15, 22
     </div>
     """, unsafe_allow_html=True)
 
@@ -249,9 +249,9 @@ def get_regulatory_explanation(label, shap_vals, feature_names, client_data):
     top_str = ', '.join([feature_labels.get(f, f) for f in top_features.index])
     risk_labels = {0: 'LOW', 1: 'MEDIUM', 2: 'HIGH'}
     finma_refs = {
-        0: 'Standard CDD applicable (FINMA Circ. 2016/7 §32)',
-        1: 'Enhanced monitoring recommended (FINMA Circ. 2016/7 §44)',
-        2: 'Enhanced Due Diligence required (FINMA Circ. 2016/7 §52 — AMLA Art. 6)'
+        0: 'Standard CDD applicable (AMLA Art. 3–5)',
+        1: 'Enhanced monitoring recommended (AMLO-FINMA Art. 13)',
+        2: 'Enhanced Due Diligence required (AMLA Art. 6 — AMLO-FINMA Art. 13, 15)'
     }
     return f"""CLASSIFICATION: {risk_labels[label]} RISK
 PRIMARY DRIVERS: {top_str}
@@ -507,7 +507,7 @@ if mode == "Individual Analysis":
         story.append(Spacer(1, 5*mm))
 
         # ── Regulatory Box ──────────────────────────────────────
-        story.append(Paragraph("REGULATORY EXPLANATION (FINMA)", sec_s))
+        story.append(Paragraph("REGULATORY EXPLANATION (AMLA / AMLO-FINMA)", sec_s))
 
         reg_lines = [l.strip() for l in reg_text.split('\n') if l.strip()]
         reg_table_data = [[Paragraph(line, reg_line_s)] for line in reg_lines]
@@ -528,7 +528,7 @@ if mode == "Individual Analysis":
         story.append(HRFlowable(width="100%", thickness=0.4, color=midgrey))
         story.append(Paragraph(
             "KYC Risk Classification System  ·  HEC Lausanne MScIS Thesis 2026  ·  "
-            "Youssouf Chaib  ·  FINMA Circular 2016/7 & AMLA  ·  DSR Peffers et al. (2007)",
+            "Youssouf Chaib  ·  AMLA & AMLO-FINMA  ·  DSR Peffers et al. (2007)",
             foot_s))
 
         doc.build(story)
