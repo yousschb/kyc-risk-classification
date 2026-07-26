@@ -155,7 +155,7 @@ st.markdown("""
 @st.cache_resource
 def load_models():
     rf = joblib.load('models/random_forest.pkl')
-    xgb = joblib.load('models/xgboost.pkl')
+    xgb = joblib.load('models/xgboost_tuned.pkl')
     le_country = joblib.load('models/le_country.pkl')
     le_sector = joblib.load('models/le_sector.pkl')
     feature_names = joblib.load('models/feature_names.pkl')
