@@ -154,21 +154,40 @@ st.markdown("""
 # =============================================
 @st.cache_resource
 def load_models():
+    import hashlib
     rf = joblib.load('models/random_forest.pkl')
     xgb = joblib.load('models/xgboost_tuned.pkl')
     le_country = joblib.load('models/le_country.pkl')
     le_sector = joblib.load('models/le_sector.pkl')
     feature_names = joblib.load('models/feature_names.pkl')
-    explainer_rf = joblib.load('models/explainer_rf.pkl')
-    explainer_xgb = joblib.load('models/explainer_xgb.pkl')
-    return rf, xgb, le_country, le_sector, feature_names, explainer_rf, explainer_xgb
+    # Build the SHAP explainers at startup rather than loading pickled ones.
+    # Pickled explainers are not portable across Python / shap / numba versions,
+    # so rebuilding them here makes the app run on any machine that can load the
+    # models, including a fresh clone of the repository.
+    explainer_rf = shap.TreeExplainer(rf)
+    explainer_xgb = shap.TreeExplainer(xgb)
+    # Model version hashes for traceability (short SHA-256 of the serialised artefacts)
+    model_hashes = {}
+    for name, path in [('XGBoost', 'models/xgboost_tuned.pkl'),
+                       ('Random Forest', 'models/random_forest.pkl')]:
+        try:
+            with open(path, 'rb') as fh:
+                model_hashes[name] = hashlib.sha256(fh.read()).hexdigest()[:12]
+        except Exception:
+            model_hashes[name] = 'n/a'
+    return (rf, xgb, le_country, le_sector, feature_names,
+            explainer_rf, explainer_xgb, model_hashes)
 
-rf, xgb, le_country, le_sector, feature_names, explainer_rf, explainer_xgb = load_models()
+rf, xgb, le_country, le_sector, feature_names, explainer_rf, explainer_xgb, model_hashes = load_models()
 
-COUNTRIES = ['Switzerland', 'Germany', 'France', 'UAE', 'Panama', 'Cayman Islands',
-             'Singapore', 'UK', 'Russia', 'China', 'USA', 'Luxembourg']
-SECTORS = ['Real Estate', 'Finance', 'Technology', 'Trading', 'Legal',
-           'Healthcare', 'Construction', 'Retail', 'Energy', 'Mining']
+MODEL_VERSION = "xgboost_tuned v1.0"
+
+# Country and sector lists are taken directly from the fitted encoders so that
+# every value the model was trained on (all 35 countries, including high-risk
+# jurisdictions) can be selected, and so the dropdowns can never drift from the
+# encoder vocabulary.
+COUNTRIES = sorted(le_country.classes_.tolist())
+SECTORS = sorted(le_sector.classes_.tolist())
 LABEL_MAP = {0: 'LOW RISK', 1: 'MEDIUM RISK', 2: 'HIGH RISK'}
 COLOR_MAP = {0: 'risk-low', 1: 'risk-medium', 2: 'risk-high'}
 
@@ -232,26 +251,38 @@ def prepare_input(country, is_pep, sector, transaction_volume, account_age_years
     }
     return pd.DataFrame([data])[feature_names]
 
+FEATURE_LABELS = {
+    'adverse_media_score': 'adverse media exposure',
+    'is_pep': 'PEP status',
+    'nb_countries_involved': 'multi-jurisdiction exposure',
+    'cash_ratio': 'cash transaction ratio',
+    'beneficial_owner_complexity': 'beneficial ownership complexity',
+    'country': 'country of domicile risk',
+    'account_age_years': 'account tenure',
+    'source_of_wealth_verified': 'source of wealth verification',
+    'transaction_volume': 'transaction volume',
+    'sector': 'business sector risk',
+    'avg_transaction_amount': 'average transaction size',
+    'nb_transactions_30d': 'transaction frequency'
+}
+
 def get_regulatory_explanation(label, shap_vals, feature_names, client_data):
-    top_features = pd.Series(shap_vals, index=feature_names).abs().sort_values(ascending=False).head(3)
-    feature_labels = {
-        'adverse_media_score': 'adverse media exposure',
-        'is_pep': 'PEP status',
-        'nb_countries_involved': 'multi-jurisdiction exposure',
-        'cash_ratio': 'cash transaction ratio',
-        'beneficial_owner_complexity': 'beneficial ownership complexity',
-        'country': 'country of domicile risk',
-        'account_age_years': 'account tenure',
-        'source_of_wealth_verified': 'source of wealth verification',
-        'transaction_volume': 'transaction volume',
-        'sector': 'business sector risk'
-    }
-    top_str = ', '.join([feature_labels.get(f, f) for f in top_features.index])
+    # shap_vals are the contributions to the PREDICTED class. Positive values are
+    # the factors that pushed the profile toward this classification. The primary
+    # drivers are therefore the top positive contributions, not the largest in
+    # absolute value: a strongly protective (negative) factor must never be
+    # reported as a driver of a High-risk classification.
+    contrib = pd.Series(shap_vals, index=feature_names).sort_values(ascending=False)
+    drivers = contrib[contrib > 0].head(3)
+    if len(drivers) == 0:            # fallback if no positive contribution exists
+        drivers = contrib.head(3)
+    feature_labels = FEATURE_LABELS
+    top_str = ', '.join([feature_labels.get(f, f) for f in drivers.index])
     risk_labels = {0: 'LOW', 1: 'MEDIUM', 2: 'HIGH'}
     finma_refs = {
-        0: 'Standard CDD applicable (AMLA Art. 3–5)',
-        1: 'Enhanced monitoring recommended (AMLO-FINMA Art. 13)',
-        2: 'Enhanced Due Diligence required (AMLA Art. 6 — AMLO-FINMA Art. 13, 15)'
+        0: 'Standard due diligence (AMLA Art. 3–5)',
+        1: 'Risk-based increased vigilance; assess against AMLA Art. 6 criteria',
+        2: 'Enhanced Due Diligence required (AMLA Art. 6; AMLO-FINMA Art. 13, 15)'
     }
     return f"""CLASSIFICATION: {risk_labels[label]} RISK
 PRIMARY DRIVERS: {top_str}
@@ -444,8 +475,10 @@ if mode == "Individual Analysis":
 
         # ── Header ──────────────────────────────────────────────
         story.append(Paragraph("KYC Risk Classification Report", title_s))
+        _model_hash = model_hashes.get(r['model_choice'], 'n/a')
         story.append(Paragraph(
-            f"Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}  ·  Model: {r['model_choice']}",
+            f"Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}  ·  "
+            f"Model: {r['model_choice']} · sha256:{_model_hash}",
             meta_s))
         story.append(HRFlowable(width="100%", thickness=1.2, color=blue, spaceAfter=5*mm))
 
@@ -522,6 +555,37 @@ if mode == "Individual Analysis":
             ('LINEBELOW',    (0,-1),(-1,-1), 0.5, midgrey),
         ]))
         story.append(reg_table)
+
+        # ── SHAP contributions (ranked, predicted class) ────────
+        story.append(Spacer(1, 4*mm))
+        story.append(Paragraph("TOP RISK CONTRIBUTIONS (SHAP)", sec_s))
+        _contrib = pd.Series(r['shap_vals'], index=feature_names)
+        _contrib = _contrib.reindex(_contrib.abs().sort_values(ascending=False).index)
+        shap_rows = [['Feature', 'SHAP value', 'Effect on risk']]
+        for _feat, _val in _contrib.head(8).items():
+            _lbl = FEATURE_LABELS.get(_feat, _feat)
+            _eff = 'increases' if _val > 0 else 'reduces' if _val < 0 else 'neutral'
+            shap_rows.append([_lbl, f'{_val:+.3f}', _eff])
+        t_shap = Table(shap_rows, colWidths=[8.0*cm, 4.0*cm, 4.5*cm])
+        t_shap.setStyle(TableStyle([
+            ('BACKGROUND',    (0, 0), (-1, 0), blue),
+            ('TEXTCOLOR',     (0, 0), (-1, 0), rl_colors.white),
+            ('FONTNAME',      (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTNAME',      (0, 1), (-1,-1), 'Helvetica'),
+            ('FONTSIZE',      (0, 0), (-1,-1), 8),
+            ('ROWBACKGROUNDS',(0, 1), (-1,-1), [lightgrey, rl_colors.white]),
+            ('TEXTCOLOR',     (0, 1), (-1,-1), darktext),
+            ('GRID',          (0, 0), (-1,-1), 0.4, midgrey),
+            ('LEFTPADDING',   (0, 0), (-1,-1), 5),
+            ('RIGHTPADDING',  (0, 0), (-1,-1), 5),
+            ('TOPPADDING',    (0, 0), (-1,-1), 3),
+            ('BOTTOMPADDING', (0, 0), (-1,-1), 3),
+        ]))
+        story.append(t_shap)
+        story.append(Spacer(1, 2*mm))
+        story.append(Paragraph(
+            "Values are SHAP contributions to the predicted class. Positive values "
+            "raise the assessed risk; negative values lower it.", cell_s))
 
         # ── Footer ──────────────────────────────────────────────
         story.append(Spacer(1, 4*mm))
@@ -665,8 +729,9 @@ else:
 
         if selected_client:
             client_idx = df[df['client_id'] == selected_client].index[0]
-            X_client = X_portfolio.iloc[[client_idx - df.index[0]]]
-            label_client = predictions[client_idx - df.index[0]]
+            pos = df.index.get_loc(client_idx)   # positional index, robust to any CSV index
+            X_client = X_portfolio.iloc[[pos]]
+            label_client = predictions[pos]
             explainer = explainer_xgb if model_choice == "XGBoost" else explainer_rf
             fig_w = plot_waterfall(explainer, X_client, label_client, feature_names)
             st.pyplot(fig_w)
