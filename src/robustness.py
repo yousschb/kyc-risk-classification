@@ -379,6 +379,84 @@ def distribution_shift(model, features):
 
 
 # ---------------------------------------------------------------------------
+# Section 4b -- Significance of the cost-sensitive gain (Section 4.3.2)
+# ---------------------------------------------------------------------------
+def mcnemar_high_recall(tuned_model, X_train, y_train, X_test, y_test):
+    """
+    Paired McNemar test on the detection of High-risk clients: does the
+    cost-sensitive weighting improve High-risk recall beyond sampling noise?
+    Both models share the tuned hyper-parameters; only the sample weights
+    differ. The test uses the discordant pairs (clients caught by one model
+    and missed by the other) on the true High-risk clients of the test set.
+    """
+    from scipy.stats import binomtest
+    keep = ["n_estimators", "max_depth", "learning_rate", "subsample",
+            "colsample_bytree", "min_child_weight", "gamma"]
+    params = {k: tuned_model.get_params()[k] for k in keep
+              if k in tuned_model.get_params()}
+    sw = np.ones(len(y_train))
+    sw[y_train == 2] = 3.0
+    sw[y_train == 1] = 1.5
+    cs = XGBClassifier(**params, eval_metric="mlogloss", random_state=SEED, n_jobs=-1)
+    cs.fit(X_train, y_train, sample_weight=sw)
+
+    high = (y_test == 2)
+    caught_tuned = tuned_model.predict(X_test)[high] == 2
+    caught_cs = cs.predict(X_test)[high] == 2
+    tuned_only = int((caught_tuned & ~caught_cs).sum())
+    cs_only = int((~caught_tuned & caught_cs).sum())
+    n = tuned_only + cs_only
+    p = binomtest(min(tuned_only, cs_only), n, 0.5).pvalue if n > 0 else 1.0
+    return {
+        "recall_tuned": round(float(caught_tuned.mean()), 3),
+        "recall_cost_sensitive": round(float(caught_cs.mean()), 3),
+        "discordant_tuned_only": tuned_only,
+        "discordant_cost_sensitive_only": cs_only,
+        "mcnemar_p_value": round(float(p), 5),
+        "significant_at_5pct": bool(p < 0.05),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Section 5b -- Cross-model agreement of SHAP importances (Section 4.4.2)
+# ---------------------------------------------------------------------------
+def cross_model_spearman(rf_model, xgb_model, X_eval):
+    """
+    Spearman rank correlation between the two models' global SHAP importances,
+    measured on the High-risk class. For each model, the mean absolute SHAP
+    value of every feature is computed over X_eval for class 2 (High), giving a
+    twelve-element importance vector; the two vectors are then rank-correlated.
+    This is the rho reported in the abstract, Section 4.4.2, Table 6.1 and the
+    conclusion.
+    """
+    try:
+        import shap
+    except ImportError:
+        return {"skipped": "shap not installed (pip install shap)"}
+    from scipy.stats import spearmanr
+
+    def high_class_importance(model):
+        vals = shap.TreeExplainer(model).shap_values(X_eval)
+        if isinstance(vals, list):          # Random Forest -> list per class
+            arr = np.abs(vals[2])
+        elif getattr(vals, "ndim", 2) == 3:  # XGBoost -> (n, features, classes)
+            arr = np.abs(vals[:, :, 2])
+        else:
+            arr = np.abs(vals)
+        return arr.mean(axis=0)
+
+    rf_imp = high_class_importance(rf_model)
+    xgb_imp = high_class_importance(xgb_model)
+    rho, p = spearmanr(rf_imp, xgb_imp)
+    return {
+        "spearman_rho": round(float(rho), 3),
+        "p_value": round(float(p), 4),
+        "n_features": int(len(rf_imp)),
+        "class": "High",
+    }
+
+
+# ---------------------------------------------------------------------------
 # Section 6 -- Local stability of SHAP explanations (Section 4.4.4)
 # ---------------------------------------------------------------------------
 def local_shap_stability(model, X_test, y_test, features, n_clients=40, pct=0.05):
@@ -436,10 +514,17 @@ def main():
 
     print("Fitting reference models (tuned XGBoost, baseline Random Forest)...")
     xgb, xgb_params = tuned_xgboost(X_train, y_train, cv)
-    baseline_random_forest(X_train, y_train)  # sanity fit; metrics already in Table 4.2
+    rf_baseline = baseline_random_forest(X_train, y_train)  # metrics already in Table 4.2
 
     results = {}
     results["noise_ceiling"] = noise_ceiling()
+
+    print("Computing cross-model SHAP agreement (Spearman rho)...")
+    results["cross_model_spearman"] = cross_model_spearman(rf_baseline, xgb, X_test)
+
+    print("Testing significance of the cost-sensitive gain (McNemar)...")
+    results["cost_sensitive_mcnemar"] = mcnemar_high_recall(
+        xgb, X_train, y_train, X_test, y_test)
 
     print("Re-tuning Random Forest with a comparable budget...")
     _, results["random_forest_retuned"] = retuned_random_forest(
@@ -501,6 +586,15 @@ def main():
     ds = results["distribution_shift"]
     print(f"Distribution shift       : in-dist {ds['accuracy_in_distribution']} -> "
           f"shifted {ds['accuracy_concept_shift']} (AUC {ds['auc_concept_shift']})")
+    mc = results["cost_sensitive_mcnemar"]
+    print(f"Cost-sensitive McNemar   : p {mc['mcnemar_p_value']} "
+          f"(discordant {mc['discordant_cost_sensitive_only']} vs "
+          f"{mc['discordant_tuned_only']}) -> "
+          f"{'significant' if mc['significant_at_5pct'] else 'not significant'}")
+    cm = results["cross_model_spearman"]
+    if "spearman_rho" in cm:
+        print(f"Cross-model SHAP rho     : {cm['spearman_rho']} "
+              f"(p {cm['p_value']}, High class, {cm['n_features']} features)")
     ss = results["shap_local_stability"]
     if "rank_corr_mean" in ss:
         print(f"SHAP local stability     : rank corr {ss['rank_corr_mean']} "
