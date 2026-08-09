@@ -6,13 +6,33 @@ import joblib
 import os
 
 from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score, RandomizedSearchCV
-from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.base import clone
 from sklearn.metrics import (
     accuracy_score, classification_report, confusion_matrix,
     roc_auc_score, f1_score
 )
 from xgboost import XGBClassifier
+
+
+def cv_f1_weighted_cost_sensitive(estimator, X, y, cv):
+    """Five-fold weighted-F1 cross-validation for the cost-sensitive model.
+
+    The class weights are applied inside each fold, so the model is evaluated
+    with the same weighting it is trained with. A plain cross_val_score would
+    silently drop the sample weights and return the baseline score instead.
+    """
+    Xv, yv = X.values, y.values
+    scores = []
+    for tr, te in cv.split(Xv, yv):
+        w = np.ones(len(tr))
+        w[yv[tr] == 2] = 3.0
+        w[yv[tr] == 1] = 1.5
+        m = clone(estimator)
+        m.fit(Xv[tr], yv[tr], sample_weight=w)
+        scores.append(f1_score(yv[te], m.predict(Xv[te]), average='weighted'))
+    return np.array(scores)
 
 # =============================================
 # 1. LOAD DATA
@@ -60,11 +80,8 @@ X_train, X_test, y_train, y_test = train_test_split(
 )
 print(f"\nTrain size: {len(X_train)} | Test size: {len(X_test)}")
 
-# Scale features (important for some metrics, good practice)
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train)
-X_test_scaled = scaler.transform(X_test)
-joblib.dump(scaler, 'models/scaler.pkl')
+# Tree ensembles are scale-invariant, so numerical variables are left unscaled
+# and no scaler is fitted or saved (see thesis Section 3.4.2).
 
 # =============================================
 # 3. RANDOM FOREST
@@ -137,7 +154,7 @@ print("STEP 4b — XGBoost Cost-Sensitive (Asymmetric Misclassification)")
 print("="*60)
 print("Rationale: Misclassifying a High Risk client as Low Risk carries")
 print("far greater regulatory consequences than the reverse (FINMA/AMLA).")
-print("We apply a sample weight matrix penalizing High->Low errors 5x more.")
+print("We apply sample weights of 3.0 to High Risk and 1.5 to Medium Risk clients.")
 
 # Build sample weights — penalize High Risk misclassification
 sample_weights = np.ones(len(y_train))
@@ -161,7 +178,9 @@ xgb_cs.fit(X_train, y_train, sample_weight=sample_weights)
 y_pred_cs = xgb_cs.predict(X_test)
 y_proba_cs = xgb_cs.predict_proba(X_test)
 
-cv_scores_cs = cross_val_score(xgb_cs, X, y, cv=cv, scoring='f1_weighted')
+# Weighted CV: the sample weights are applied inside each fold (a plain
+# cross_val_score would drop them and return the baseline score).
+cv_scores_cs = cv_f1_weighted_cost_sensitive(xgb_cs, X, y, cv)
 
 print(f"\nXGBoost Cost-Sensitive Results:")
 print(f"  Accuracy:              {accuracy_score(y_test, y_pred_cs):.4f}")
@@ -259,7 +278,6 @@ print("\n" + "="*60)
 print("MODELS SAVED:")
 print("  models/random_forest.pkl")
 print("  models/xgboost.pkl")
-print("  models/scaler.pkl")
 print("  models/le_country.pkl")
 print("  models/le_sector.pkl")
 print("  models/feature_names.pkl")
