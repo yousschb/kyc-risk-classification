@@ -5,6 +5,20 @@
     "accuracy_ceiling": 0.859,
     "majority_baseline": 0.4
   },
+  "cross_model_spearman": {
+    "spearman_rho": 0.853,
+    "p_value": 0.0004,
+    "n_features": 12,
+    "class": "High"
+  },
+  "cost_sensitive_mcnemar": {
+    "recall_tuned": 0.732,
+    "recall_cost_sensitive": 0.788,
+    "discordant_tuned_only": 3,
+    "discordant_cost_sensitive_only": 17,
+    "mcnemar_p_value": 0.00258,
+    "significant_at_5pct": true
+  },
   "random_forest_retuned": {
     "accuracy": 0.639,
     "f1_weighted": 0.6374,
