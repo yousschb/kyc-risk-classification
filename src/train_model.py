@@ -332,5 +332,18 @@ print(f"  F1-Score (weighted):   {f1_score(y_test, y_pred_best, average='weighte
 print(f"  AUC-ROC (OvR):         {roc_auc_score(y_test, y_proba_best, multi_class='ovr'):.4f}")
 print(f"\nClassification Report (Tuned):\n{classification_report(y_test, y_pred_best, target_names=['Low','Medium','High'])}")
 
+# Confusion matrix — Tuned XGBoost
+fig3, ax3 = plt.subplots(figsize=(6, 5))
+cm_tuned = confusion_matrix(y_test, y_pred_best)
+sns.heatmap(cm_tuned, annot=True, fmt='d', cmap='Blues',
+            xticklabels=['Low', 'Medium', 'High'],
+            yticklabels=['Low', 'Medium', 'High'], ax=ax3)
+ax3.set_title('XGBoost (Tuned) — Confusion Matrix', fontsize=13, fontweight='bold')
+ax3.set_xlabel('Predicted')
+ax3.set_ylabel('Actual')
+plt.tight_layout()
+plt.savefig('data/figures/confusion_matrix_xgb_tuned.png', dpi=150, bbox_inches='tight')
+print("Confusion matrix (tuned XGBoost) saved → data/figures/confusion_matrix_xgb_tuned.png")
+
 joblib.dump(xgb_best, 'models/xgboost_tuned.pkl')
 print("Tuned model saved → models/xgboost_tuned.pkl")
