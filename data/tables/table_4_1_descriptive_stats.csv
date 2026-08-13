@@ -1,0 +1,7 @@
+Variable,Mean,Median,Std Dev,Min,Max,Key Observation
+transaction_volume (CHF),183544.0,58669.0,454017.0,493.0,7452278.0,Log-normal wealth distribution
+account_age_years,15.6,16.0,8.6,1.0,30.0,Established private banking base
+nb_countries_involved,7.5,7.0,4.0,1.0,14.0,High variance; driver for High Risk
+cash_ratio,0.284,0.268,0.157,0.003,0.836,"Beta(2,5); wire-transfer dominant"
+adverse_media_score,0.5,0.0,0.86,0.0,3.0,70% zero; heavily right-skewed
+beneficial_owner_complexity,0.49,0.0,0.67,0.0,2.0,Majority simple structures

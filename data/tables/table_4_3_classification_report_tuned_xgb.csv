@@ -1,0 +1,5 @@
+Class,Precision,Recall,F1-Score,Support (n)
+Low Risk,0.84,0.86,0.85,400
+Medium Risk,0.68,0.7,0.69,350
+High Risk,0.82,0.74,0.78,250
+Weighted Average,0.78,0.78,0.777,1000

@@ -1,0 +1,6 @@
+Metric,Random Forest,XGBoost (Baseline),XGBoost (Tuned),XGBoost (Cost-Sensitive)
+Accuracy,61.8%,76.0%,77.7%,75.8%
+F1-Score (weighted),0.615,0.760,0.777,0.759
+AUC-ROC (one-vs-rest),0.806,0.907,0.916,0.903
+Cross-validated F1 mean (5-fold),0.618 ± 0.011,0.747 ± 0.009,0.770 ± 0.010,0.756 ± 0.012
+High Risk Recall,0.688,0.712,0.740,0.772
