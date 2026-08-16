@@ -94,20 +94,26 @@ ax5.legend(fontsize=9)
 ax5.spines['top'].set_visible(False)
 ax5.spines['right'].set_visible(False)
 
-# ── Panel 6: Annotation text ──────────────────────────────────
+# ── Panel 6: Annotation text (computed from the same Series as panels 1-5) ──
 ax6 = fig.add_subplot(gs[1, 2])
 ax6.axis('off')
+
+income_low = df[df.RiskCategory == 'Low']['Income'].mean() / 1e6
+income_med = df[df.RiskCategory == 'Medium']['Income'].mean() / 1e6
+doc5_low = vd_props.loc['Low', 5] if 5 in vd_props.columns else 0
+doc5_med = vd_props.loc['Medium', 5] if 5 in vd_props.columns else 0
+
 msg = (
     "Key finding:\n\n"
     "Low and Medium Risk classes share\n"
-    "identical distributions across all\n"
+    "near-identical distributions across\n"
     "available variables:\n\n"
-    "  • PEP rate:    Low 0%  ≈  Medium 0%\n"
-    "  • Sanction:    Low 0%  ≈  Medium 0%\n"
-    "  • Income:      Low ≈ Medium (≈ CHF 5M)\n"
-    "  • Documents:   Low ≈ Medium (≈ 77% at 5)\n\n"
-    "Only AML flag differs marginally\n"
-    "(Low 0%  vs  Medium 24.8%).\n\n"
+    f"  • PEP rate:    Low {pep_rate['Low']:.0f}%  ≈  Medium {pep_rate['Medium']:.0f}%\n"
+    f"  • Sanction:    Low {sanc_rate['Low']:.0f}%  ≈  Medium {sanc_rate['Medium']:.0f}%\n"
+    f"  • Income:      Low ≈ Medium (≈ CHF {income_low:.0f}M)\n"
+    f"  • Documents:   Low ≈ Medium (≈ {doc5_low:.0f}% at 5)\n\n"
+    f"Only AML flag differs marginally\n"
+    f"(Low {aml_rate['Low']:.1f}%  vs  Medium {aml_rate['Medium']:.1f}%).\n\n"
     "→ Low vs Medium are not separable\n"
     "   with the available variables.\n"
     "→ Binary High vs Non-High is the\n"

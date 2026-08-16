@@ -386,7 +386,7 @@ plt.savefig('data/figures/fig_4_8_dependence.png', dpi=150, bbox_inches='tight')
 plt.close()
 print("Figure 4.8 saved → data/figures/fig_4_8_dependence.png")
 
-# ── Figure 4.9 : SHAP waterfall (client CLT0006 / first High Risk) ──
+# ── Figure 4.9 : SHAP waterfall — highest-confidence High Risk client in the test set (index 3390) ──
 idx_high = 3390
 X_client = X_test.loc[[idx_high]]
 client_shap_values = explainer(X_client)
@@ -433,6 +433,11 @@ train_mean = train_scores.mean(axis=1)
 train_std  = train_scores.std(axis=1)
 test_mean  = test_scores.mean(axis=1)
 test_std   = test_scores.std(axis=1)
+
+# Measured empirically in robustness.py:noise_ceiling() by reconstructing the
+# deterministic part of the generating score and counting labels re-assigned
+# by the injected noise (see thesis Section 3.5.6). Hardcoded here to keep
+# this script's only dependency on generate_data.py's label logic explicit.
 noise_ceiling = 0.86
 
 fig410, ax410 = plt.subplots(figsize=(10, 6))

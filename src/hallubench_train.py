@@ -158,4 +158,6 @@ plt.close()
 print("SHAP figure saved → data/figures/fig_hallubench_binary_shap.png")
 
 joblib.dump(xgb_best, 'models/xgboost_hallubench_binary.pkl')
+joblib.dump(le_country_h, 'models/le_country_hallubench.pkl')
+joblib.dump(le_occupation_h, 'models/le_occupation_hallubench.pkl')
 print("\nModel saved. Done.")

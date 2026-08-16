@@ -6,7 +6,6 @@ Reproduces every robustness result reported in the thesis (v23):
   - Noise ceiling on the synthetic labels            -> Section 3.3.4 / 4.3.4
   - Train/test gap of the tuned XGBoost              -> Section 4.3.4
   - Confidence intervals over repeated seeds         -> Section 4.3.4
-  - Learning curve figure (Figure 4.10)              -> Section 4.3.4
   - Sensitivity to distribution shift                -> Section 4.3.4
   - Fairly re-tuned Random Forest                    -> Section 4.5 / Table 4.5
   - Interpretable benchmark: logistic regression     -> Section 4.5 / Table 4.5
@@ -19,7 +18,7 @@ Run from the repository root:
 
 Outputs:
     reports/robustness_results.json      (all numbers)
-    reports/figures/learning_curve.png   (Figure 4.10)
+
 
 Note on reproducibility: absolute figures can move by a few tenths of a point
 across library versions (xgboost / scikit-learn). The relative conclusions are
@@ -36,7 +35,7 @@ import numpy as np
 import pandas as pd
 
 from sklearn.model_selection import (
-    train_test_split, StratifiedKFold, RandomizedSearchCV, learning_curve,
+    train_test_split, StratifiedKFold, RandomizedSearchCV,
 )
 from sklearn.preprocessing import LabelEncoder, StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
@@ -158,11 +157,14 @@ def tuned_xgboost(X_train, y_train, cv):
 
 
 def baseline_random_forest(X_train, y_train):
+    """Reproduce the exact Random Forest configuration of train_model.py
+    (Table 4.2), so that cross_model_spearman() is computed on the same
+    model reported in the thesis rather than a differently-tuned variant."""
     rf = RandomForestClassifier(n_estimators=200, max_depth=10,
+                                min_samples_split=5, min_samples_leaf=2,
                                 class_weight="balanced", random_state=SEED, n_jobs=-1)
     rf.fit(X_train, y_train)
     return rf
-
 
 # ---------------------------------------------------------------------------
 # Section 1 -- Noise ceiling (Section 3.3.4 / 4.3.4)
@@ -276,41 +278,6 @@ def confidence_intervals(build_model, X, y, n=N_SEEDS):
         "auc_ci95": round(float(1.96 * u.std() / np.sqrt(n)), 4),
     }
 
-
-def learning_curve_figure(build_model, X_train, y_train, cv, ceiling):
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    sizes, tr, va = learning_curve(
-        build_model(), X_train, y_train,
-        train_sizes=np.linspace(0.15, 1.0, 6), cv=cv, scoring="accuracy", n_jobs=-1,
-    )
-    os.makedirs(FIGDIR, exist_ok=True)
-    fig, ax = plt.subplots(figsize=(6.2, 3.9))
-    ax.plot(sizes, tr.mean(1), "o-", color="#2c3e50", lw=1.6, ms=5,
-            label="Training accuracy")
-    ax.plot(sizes, va.mean(1), "s--", color="#7f8c8d", lw=1.6, ms=5,
-            label="Cross-validation accuracy")
-    ax.axhline(ceiling, color="#c0392b", ls=":", lw=1.3,
-               label=f"Noise ceiling ({ceiling:.3f})")
-    ax.set_xlabel("Training set size")
-    ax.set_ylabel("Accuracy")
-    ax.set_ylim(0.55, 1.02)
-    ax.legend(frameon=False, fontsize=9, loc="center right")
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.grid(axis="y", alpha=0.25)
-    fig.tight_layout()
-    path = os.path.join(FIGDIR, "learning_curve.png")
-    fig.savefig(path, dpi=200, bbox_inches="tight")
-    plt.close(fig)
-    return {
-        "sizes": [int(s) for s in sizes],
-        "train": [round(float(x), 3) for x in tr.mean(1)],
-        "valid": [round(float(x), 3) for x in va.mean(1)],
-        "figure": os.path.relpath(path, os.path.join(HERE, "..")),
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -545,12 +512,6 @@ def main():
         lambda: XGBClassifier(**{k: xgb_params[k] for k in keep if k in xgb_params},
                               eval_metric="mlogloss", random_state=SEED, n_jobs=-1), X, y)
 
-    print("Building the learning curve (Figure 4.10)...")
-    results["learning_curve"] = learning_curve_figure(
-        lambda: XGBClassifier(**{k: xgb_params[k] for k in keep if k in xgb_params},
-                              eval_metric="mlogloss", random_state=SEED, n_jobs=-1),
-        X_train, y_train, cv, results["noise_ceiling"]["accuracy_ceiling"])
-
     print("Testing sensitivity to distribution shift...")
     results["distribution_shift"] = distribution_shift(xgb, features)
 
@@ -601,7 +562,7 @@ def main():
               f"(min {ss['rank_corr_min']}), L1 change {ss['rel_L1_change_mean']}")
     print("=" * 64)
     print(f"Saved: {os.path.relpath(out_path)}")
-    print(f"Saved: {results['learning_curve']['figure']}")
+ 
 
 
 if __name__ == "__main__":

@@ -624,20 +624,29 @@ else:
         st.success(f"{len(df)} clients loaded.")
 
         # Preprocess
+        
         df_model = df.copy()
         if 'country_risk' in df_model.columns:
             df_model = df_model.drop(columns=['client_id', 'country_risk'], errors='ignore')
         else:
             df_model = df_model.drop(columns=['client_id'], errors='ignore')
 
-        df_model['country'] = le_country.transform(df_model['country'])
-        df_model['sector'] = le_sector.transform(df_model['sector'])
+        try:
+            df_model['country'] = le_country.transform(df_model['country'])
+            df_model['sector'] = le_sector.transform(df_model['sector'])
+        except ValueError as e:
+            st.error(f"Unrecognized country or sector value in the uploaded file: {e}")
+            st.stop()
+
+        missing_cols = [c for c in feature_names if c not in df_model.columns]
+        if missing_cols:
+            st.error(f"Missing required columns: {missing_cols}")
+            st.stop()
 
         if 'risk_label' in df_model.columns:
             df_model = df_model.drop(columns=['risk_label'])
         if 'risk_label_str' in df_model.columns:
             df_model = df_model.drop(columns=['risk_label_str'])
-
         X_portfolio = df_model[feature_names]
         model = xgb if model_choice == "XGBoost" else rf
         predictions = model.predict(X_portfolio)

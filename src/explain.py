@@ -56,8 +56,6 @@ plt.close()
 print("Saved: data/figures/shap_rf_summary.png")
 
 # Feature importance bar — RF (High Risk class = index 2)
-# shap_values_rf is a list of arrays [n_samples, n_features] per class
-shap_rf_high = shap_values_rf[2] if isinstance(shap_values_rf, list) else shap_values_rf[:, :, 2]
 plt.figure()
 shap.summary_plot(
     shap_rf_high,
@@ -121,8 +119,11 @@ print("\n" + "="*60)
 print("STEP 4 — Local Explanation: Waterfall for a High Risk client")
 print("="*60)
 
-# Pick a High Risk client
-high_risk_idx = df[df['risk_label'] == 2].index[0]
+# Client 3390 — same test-set client used for Figure 4.9 in the thesis,
+# selected there as the correctly-classified High Risk case with the
+# highest softmax confidence (99.9%). Kept identical here so this
+# exploratory script's waterfall matches the one reported in the thesis.
+high_risk_idx = 3390
 client = X.iloc[[high_risk_idx]]
 client_raw = df.iloc[high_risk_idx]
 
@@ -133,8 +134,7 @@ print(f"  Sector:       {client_raw['sector']}")
 print(f"  Risk Label:   {client_raw['risk_label']} (High)")
 
 # XGBoost waterfall — High Risk class
-explainer_xgb2 = shap.TreeExplainer(xgb)
-shap_explanation = explainer_xgb2(client)
+shap_explanation = explainer_xgb(client)
 
 # Handle both 2D and 3D SHAP output
 if len(shap_explanation.values.shape) == 3:
