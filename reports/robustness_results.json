@@ -16,7 +16,7 @@
     "recall_cost_sensitive": 0.812,
     "discordant_tuned_only": 4,
     "discordant_cost_sensitive_only": 22,
-    "mcnemar_p_value": 0.00053,
+    "mcnemar_p_value": 0.000534,
     "significant_at_5pct": true
   },
   "random_forest_retuned": {
@@ -66,6 +66,7 @@
   },
   "distribution_shift": {
     "accuracy_in_distribution": 0.777,
+    "auc_in_distribution": 0.9198,
     "accuracy_concept_shift": 0.4478,
     "auc_concept_shift": 0.6412
   },

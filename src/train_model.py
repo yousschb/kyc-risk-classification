@@ -143,43 +143,7 @@ print(f"  CV F1 (5-fold):        {cv_scores_xgb.mean():.4f} ± {cv_scores_xgb.st
 print(f"\nClassification Report:\n{classification_report(y_test, y_pred_xgb, target_names=['Low', 'Medium', 'High'])}")
 
 # =============================================
-# 4b. XGBOOST COST-SENSITIVE
-# =============================================
-print("=" * 60)
-print("STEP 4b — XGBoost Cost-Sensitive")
-print("=" * 60)
-
-sample_weights = np.ones(len(y_train))
-sample_weights[y_train == 2] = 3.0
-sample_weights[y_train == 1] = 1.5
-
-xgb_cs = XGBClassifier(
-    n_estimators=200, max_depth=6, learning_rate=0.1,
-    subsample=0.8, colsample_bytree=0.8, eval_metric='mlogloss',
-    random_state=42, n_jobs=-1
-)
-xgb_cs.fit(X_train, y_train, sample_weight=sample_weights)
-y_pred_cs = xgb_cs.predict(X_test)
-y_proba_cs = xgb_cs.predict_proba(X_test)
-
-cv_scores_cs = cv_f1_weighted_cost_sensitive(xgb_cs, X, y, cv)
-
-print(f"\nXGBoost Cost-Sensitive Results:")
-print(f"  Accuracy:              {accuracy_score(y_test, y_pred_cs):.4f}")
-print(f"  F1-Score (weighted):   {f1_score(y_test, y_pred_cs, average='weighted'):.4f}")
-print(f"  AUC-ROC (OvR):         {roc_auc_score(y_test, y_proba_cs, multi_class='ovr'):.4f}")
-print(f"  CV F1 (5-fold):        {cv_scores_cs.mean():.4f} ± {cv_scores_cs.std():.4f}")
-print(f"\nClassification Report:\n{classification_report(y_test, y_pred_cs, target_names=['Low', 'Medium', 'High'])}")
-
-cm_cs = confusion_matrix(y_test, y_pred_cs)
-cm_std_xgb = confusion_matrix(y_test, y_pred_xgb)
-print(f"\nHigh Risk Recall — Standard XGBoost: {cm_std_xgb[2,2]/cm_std_xgb[2].sum():.4f}")
-print(f"High Risk Recall — Cost-Sensitive:    {cm_cs[2,2]/cm_cs[2].sum():.4f}")
-
-joblib.dump(xgb_cs, 'models/xgboost_cost_sensitive.pkl')
-
-# =============================================
-# 5. HYPERPARAMETER TUNING
+# 5.a HYPERPARAMETER TUNING
 # =============================================
 print("\n" + "=" * 60)
 print("STEP 5 — Hyperparameter Tuning (RandomizedSearchCV)")
@@ -219,11 +183,55 @@ print(f"  F1-Score (weighted):   {f1_score(y_test, y_pred_best, average='weighte
 print(f"  AUC-ROC (OvR):         {roc_auc_score(y_test, y_proba_best, multi_class='ovr'):.4f}")
 print(f"\nClassification Report (Tuned):\n{classification_report(y_test, y_pred_best, target_names=['Low', 'Medium', 'High'])}")
 
+cv_scores_best = cross_val_score(xgb_best, X, y, cv=cv, scoring='f1_weighted')
+
+print(f"  CV F1 (5-fold, full dataset): {cv_scores_best.mean():.4f} ± {cv_scores_best.std():.4f}")
 joblib.dump(rf, 'models/random_forest.pkl')
 joblib.dump(xgb, 'models/xgboost.pkl')
 joblib.dump(xgb_best, 'models/xgboost_tuned.pkl')
 joblib.dump(list(X.columns), 'models/feature_names.pkl')
 print("\nModels saved.")
+
+# =============================================
+# 5b. XGBOOST TUNED + COST-SENSITIVE
+# =============================================
+print("\n" + "=" * 60)
+print("STEP 5b — XGBoost Tuned + Cost-Sensitive")
+print("=" * 60)
+
+KEEP = ['n_estimators', 'max_depth', 'learning_rate', 'subsample',
+        'colsample_bytree', 'min_child_weight', 'gamma']
+tuned_params = {k: xgb_best.get_params()[k] for k in KEEP}
+print(f"Hyperparameters inherited from the tuned model: {tuned_params}")
+
+sample_weights = np.ones(len(y_train))
+sample_weights[y_train == 2] = 3.0
+sample_weights[y_train == 1] = 1.5
+
+xgb_cs = XGBClassifier(**tuned_params, eval_metric='mlogloss',
+                       random_state=42, n_jobs=-1)
+xgb_cs.fit(X_train, y_train, sample_weight=sample_weights)
+y_pred_cs = xgb_cs.predict(X_test)
+y_proba_cs = xgb_cs.predict_proba(X_test)
+
+cv_scores_cs = cv_f1_weighted_cost_sensitive(xgb_cs, X, y, cv)
+
+print(f"\nXGBoost Tuned Cost-Sensitive Results:")
+print(f"  Accuracy:              {accuracy_score(y_test, y_pred_cs):.4f}")
+print(f"  F1-Score (weighted):   {f1_score(y_test, y_pred_cs, average='weighted'):.4f}")
+print(f"  AUC-ROC (OvR):         {roc_auc_score(y_test, y_proba_cs, multi_class='ovr'):.4f}")
+print(f"  CV F1 (5-fold):        {cv_scores_cs.mean():.4f} ± {cv_scores_cs.std():.4f}")
+print(f"\nClassification Report:\n{classification_report(y_test, y_pred_cs, target_names=['Low', 'Medium', 'High'])}")
+
+cm_cs   = confusion_matrix(y_test, y_pred_cs)
+cm_best = confusion_matrix(y_test, y_pred_best)
+print(f"\nHigh Risk Recall    — Tuned:          {cm_best[2,2]/cm_best[2].sum():.4f}")
+print(f"High Risk Recall    — Tuned + weights: {cm_cs[2,2]/cm_cs[2].sum():.4f}")
+print(f"High Risk Precision — Tuned:          {cm_best[2,2]/cm_best[:,2].sum():.4f}")
+print(f"High Risk Precision — Tuned + weights: {cm_cs[2,2]/cm_cs[:,2].sum():.4f}")
+print(f"High Risk predicted — Tuned: {cm_best[:,2].sum()} | Tuned + weights: {cm_cs[:,2].sum()}")
+
+joblib.dump(xgb_cs, 'models/xgboost_cost_sensitive.pkl')
 
 # =============================================
 # 6. SHAP
@@ -426,7 +434,7 @@ high_risk_proba = proba_all[:, 2]
 
 # ── Figure 4.10 : Learning curve ─────────────────────────────
 train_sizes, train_scores, test_scores = learning_curve(
-    xgb_best, X, y, cv=5, scoring='f1_weighted',
+    xgb_best, X, y, cv=5, scoring='accuracy',
     train_sizes=np.linspace(0.1, 1.0, 10), n_jobs=-1
 )
 train_mean = train_scores.mean(axis=1)
@@ -441,16 +449,16 @@ test_std   = test_scores.std(axis=1)
 noise_ceiling = 0.86
 
 fig410, ax410 = plt.subplots(figsize=(10, 6))
-ax410.plot(train_sizes, train_mean, 'o-', color=BLUE, lw=2, label='Training F1')
+ax410.plot(train_sizes, train_mean, 'o-', color=BLUE, lw=2, label='Training accuracy')
 ax410.fill_between(train_sizes, train_mean - train_std, train_mean + train_std,
                    alpha=0.12, color=BLUE)
-ax410.plot(train_sizes, test_mean, 's-', color=CORAL, lw=2, label='Validation F1 (5-fold)')
+ax410.plot(train_sizes, test_mean, 's-', color=CORAL, lw=2, label='Validation accuracy (5-fold)')
 ax410.fill_between(train_sizes, test_mean - test_std, test_mean + test_std,
                    alpha=0.12, color=CORAL)
 ax410.axhline(y=noise_ceiling, color=GRAY, linestyle='--', lw=2,
               label=f'Noise ceiling ({noise_ceiling})')
 ax410.set_xlabel('Training set size', fontsize=12)
-ax410.set_ylabel('Weighted F1-score', fontsize=12)
+ax410.set_ylabel('Accuracy', fontsize=12)
 ax410.set_title('Figure 4.10: Learning curve — tuned XGBoost vs noise ceiling',
                 fontweight='bold', fontsize=13, pad=12)
 ax410.legend(fontsize=11)

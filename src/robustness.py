@@ -330,6 +330,7 @@ def distribution_shift(model, features):
     # In-distribution reference (same rule, new seed).
     Xr, yr = prep(_generate(7, COUNTRY_TIER, W))
     acc_in = accuracy_score(yr, model.predict(Xr))
+    auc_in = roc_auc_score(yr, model.predict_proba(Xr), multi_class="ovr")
     # Concept shift: rotate country tiers and re-balance the weights.
     shifted_map = {c: ("High" if COUNTRY_TIER[c] == "Low"
                         else "Low" if COUNTRY_TIER[c] == "High" else "Medium")
@@ -340,6 +341,7 @@ def distribution_shift(model, features):
     auc_shift = roc_auc_score(ys, model.predict_proba(Xs), multi_class="ovr")
     return {
         "accuracy_in_distribution": round(float(acc_in), 4),
+        "auc_in_distribution": round(float(auc_in), 4),
         "accuracy_concept_shift": round(float(acc_shift), 4),
         "auc_concept_shift": round(float(auc_shift), 4),
     }
@@ -379,7 +381,7 @@ def mcnemar_high_recall(tuned_model, X_train, y_train, X_test, y_test):
         "recall_cost_sensitive": round(float(caught_cs.mean()), 3),
         "discordant_tuned_only": tuned_only,
         "discordant_cost_sensitive_only": cs_only,
-        "mcnemar_p_value": round(float(p), 5),
+        "mcnemar_p_value": float(f"{p:.3g}"),
         "significant_at_5pct": bool(p < 0.05),
     }
 
@@ -545,8 +547,10 @@ def main():
     print(f"XGBoost CI (8 seeds)     : acc {ci['acc_mean']} +/- {ci['acc_ci95']}  "
           f"AUC {ci['auc_mean']} +/- {ci['auc_ci95']}")
     ds = results["distribution_shift"]
-    print(f"Distribution shift       : in-dist {ds['accuracy_in_distribution']} -> "
-          f"shifted {ds['accuracy_concept_shift']} (AUC {ds['auc_concept_shift']})")
+    print(f"Distribution shift (acc) : in-dist {ds['accuracy_in_distribution']} -> "
+          f"shifted {ds['accuracy_concept_shift']}")
+    print(f"Distribution shift (AUC) : in-dist {ds['auc_in_distribution']} -> "
+          f"shifted {ds['auc_concept_shift']}")
     mc = results["cost_sensitive_mcnemar"]
     print(f"Cost-sensitive McNemar   : p {mc['mcnemar_p_value']} "
           f"(discordant {mc['discordant_cost_sensitive_only']} vs "

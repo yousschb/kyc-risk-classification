@@ -317,6 +317,8 @@ if mode == "Individual Analysis":
     st.markdown("# Individual Client Risk Assessment")
     st.markdown('<p class="section-title">Client Profile</p>', unsafe_allow_html=True)
 
+    client_id_input = st.text_input("Client Identifier (optional)", value="")
+
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -362,6 +364,7 @@ if mode == "Individual Analysis":
 
         # Store in session state
         st.session_state['results'] = {
+            'client_id': client_id_input if client_id_input else 'Not specified',
             'label': label, 'proba': proba, 'X_input': X_input,
             'reg_text': reg_text, 'shap_vals': shap_vals,
             'country': country, 'sector': sector, 'is_pep': is_pep,
@@ -427,7 +430,7 @@ if mode == "Individual Analysis":
         from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib.units import cm, mm
         from reportlab.lib import colors as rl_colors
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, KeepTogether
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, KeepTogether, PageBreak
         from reportlab.lib.enums import TA_CENTER, TA_LEFT
         import io, datetime
 
@@ -478,7 +481,7 @@ if mode == "Individual Analysis":
         _model_hash = model_hashes.get(r['model_choice'], 'n/a')
         story.append(Paragraph(
             f"Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}  ·  "
-            f"Model: {r['model_choice']} · sha256:{_model_hash}",
+            f"Model: {r['model_choice']} ({MODEL_VERSION}) · sha256:{_model_hash}",
             meta_s))
         story.append(HRFlowable(width="100%", thickness=1.2, color=blue, spaceAfter=5*mm))
 
@@ -505,13 +508,17 @@ if mode == "Individual Analysis":
             ('VALIGN',        (0, 0), (-1,-1), 'MIDDLE'),
         ])
 
+        _avg_tx = r['transaction_volume'] / (r['nb_transactions_30d'] * 12) if r['nb_transactions_30d'] > 0 else 0
         profile_rows = [
             ['Parameter', 'Value'],
+            ['Client ID',      r.get('client_id', 'Not specified')],
             ['Country',        r['country']],
             ['Sector',         r['sector']],
             ['PEP Status',     'Yes' if r['is_pep']==1 else 'No'],
             ['Volume (CHF)',    f"{r['transaction_volume']:,.0f}"],
             ['Account Age',    f"{r['account_age_years']} years"],
+            ['Tx (30d)',       str(r['nb_transactions_30d'])],
+            ['Avg Tx Amount',  f"CHF {_avg_tx:,.0f}"],
             ['Countries',      str(r['nb_countries_involved'])],
             ['Cash Ratio',     f"{r['cash_ratio']:.2f}"],
             ['Adverse Media',  f"{r['adverse_media_score']} / 3"],
@@ -557,12 +564,12 @@ if mode == "Individual Analysis":
         story.append(reg_table)
 
         # ── SHAP contributions (ranked, predicted class) ────────
-        story.append(Spacer(1, 4*mm))
+        story.append(PageBreak())
         story.append(Paragraph("TOP RISK CONTRIBUTIONS (SHAP)", sec_s))
         _contrib = pd.Series(r['shap_vals'], index=feature_names)
         _contrib = _contrib.reindex(_contrib.abs().sort_values(ascending=False).index)
         shap_rows = [['Feature', 'SHAP value', 'Effect on risk']]
-        for _feat, _val in _contrib.head(8).items():
+        for _feat, _val in _contrib.items():
             _lbl = FEATURE_LABELS.get(_feat, _feat)
             _eff = 'increases' if _val > 0 else 'reduces' if _val < 0 else 'neutral'
             shap_rows.append([_lbl, f'{_val:+.3f}', _eff])
